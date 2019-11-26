@@ -114,3 +114,6 @@ _*
 *_v3plus.py
 *.json
 *.zip
+checkpoints
+datasets
+*.swp
