@@ -277,14 +277,14 @@ def live(config_path, model_path, cuda, crf, camera_id):
         #print("Image shape {}".format(image.shape))
         labelmap = inference(model, image, raw_image, postprocessor)
 
-        # Frisby to sea?
-        labelmap[labelmap == 33] = 154
-        labelmap[labelmap == 66] = 154
-        labelmap[labelmap == 80] = 154
-        # Bottle to boat?
-        labelmap[labelmap == 43] = 8
+        # Frisby and more to sea?
+        #labelmap[labelmap == 33] = 154
+        #labelmap[labelmap == 66] = 154
+        #labelmap[labelmap == 80] = 154
+        #Bottle to flower?
+        labelmap[labelmap == 43] = 118
         # Person to rock?
-        labelmap[labelmap == 0] = 149
+        #labelmap[labelmap == 0] = 168
 
         #colormap = colorize(labelmap)
         uniques = np.unique(labelmap)
@@ -298,6 +298,7 @@ def live(config_path, model_path, cuda, crf, camera_id):
 
         labelimg = Image.fromarray(np.uint8(labelmap), 'L')
         instanceimg = Image.fromarray(np.uint8(instancemap),'L')
+
         
         #labelimg.show()
 
@@ -305,9 +306,14 @@ def live(config_path, model_path, cuda, crf, camera_id):
         generated = spade_model(item, mode='inference')
 
         generated_np = util.tensor2im(generated[0])
+        print("Generated image shape {} label resize shape {}".format(generated_np.shape, label_resized.shape))
+
+        # Masking
+        #label_resized = np.array(labelimg.resize((256,256), Image.NEAREST))
+        #generated_np[label_resized != 118, :] = [0, 0, 0];
+
         generated_rgb = cv2.cvtColor(generated_np, cv2.COLOR_BGR2RGB)
 
-        #print("Generated image shape {}".format(generated_np.shape))
         #print("raw image shape {}".format(raw_image.shape))
         #print("Generated image {}".format(generated_np))
         #print("raw image  {}".format(raw_image))
