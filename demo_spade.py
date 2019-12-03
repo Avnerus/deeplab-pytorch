@@ -269,7 +269,7 @@ def live(config_path, model_path, cuda, crf, camera_id):
     window_name = "{} + {}".format(CONFIG.MODEL.NAME, CONFIG.DATASET.NAME)
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
 
-    #np.set_printoptions(threshold=sys.maxsize)
+    np.set_printoptions(threshold=sys.maxsize)
 
     while True:
         _, frame = cap.read()
@@ -282,9 +282,19 @@ def live(config_path, model_path, cuda, crf, camera_id):
         #labelmap[labelmap == 66] = 154
         #labelmap[labelmap == 80] = 154
         #Bottle to flower?
-        labelmap[labelmap == 43] = 118
+        #labelmap[labelmap == 43] = 118
         # Person to rock?
         #labelmap[labelmap == 0] = 168
+        #dog to person
+        #labelmap[labelmap == 17] = 0
+
+        # Sky grass and bottle flower
+        #bottle_mask = (labelmap == 43)
+        #labelmap[0:193,:] = 156
+        #labelmap[:,:] = 123
+        #labelmap[bottle_mask] = 118
+
+        #print(labelmap.shape)
 
         #colormap = colorize(labelmap)
         uniques = np.unique(labelmap)
@@ -306,9 +316,9 @@ def live(config_path, model_path, cuda, crf, camera_id):
         generated = spade_model(item, mode='inference')
 
         generated_np = util.tensor2im(generated[0])
-        print("Generated image shape {} label resize shape {}".format(generated_np.shape, label_resized.shape))
 
         # Masking
+        #print("Generated image shape {} label resize shape {}".format(generated_np.shape, label_resized.shape))
         #label_resized = np.array(labelimg.resize((256,256), Image.NEAREST))
         #generated_np[label_resized != 118, :] = [0, 0, 0];
 
