@@ -31,6 +31,13 @@ from data.coco_dataset import CocoDataset
 from PIL import Image
 from util import util
 
+import requests
+from requests.auth import HTTPDigestAuth
+
+THETA_ID = 'THETAYN14100015'
+THETA_PASSWORD = '14100015'  # default password. may have been changed
+THETA_URL = 'http://192.168.2.183/osc/'
+
 
 def get_device(cuda):
     cuda = cuda and torch.cuda.is_available()
@@ -235,7 +242,6 @@ def live(config_path, model_path, cuda, crf, camera_id):
     model.to(device)
     print("Model:", CONFIG.MODEL.NAME)
 
-    # SPADE model
     opt = TestOptions().parse()
     opt.use_vae = False
     spade_model = Pix2PixModel(opt)
@@ -246,12 +252,6 @@ def live(config_path, model_path, cuda, crf, camera_id):
     coco_dataset = CocoDataset()
     coco_dataset.initialize(opt)
     print(coco_dataset)
-
-
-
-    # UVC camera stream
-    cap = cv2.VideoCapture(camera_id)
-    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"YUYV"))
 
     def colorize(labelmap):
         print(labelmap.shape)
@@ -271,72 +271,63 @@ def live(config_path, model_path, cuda, crf, camera_id):
 
     np.set_printoptions(threshold=sys.maxsize)
 
-    while True:
-        _, frame = cap.read()
-        image, raw_image = preprocessing(frame, device, CONFIG)
-        #print("Image shape {}".format(image.shape))
-        labelmap = inference(model, image, raw_image, postprocessor)
+    url = THETA_URL + 'commands/execute'
+    payload = {"name": "camera.getLivePreview"}
+    buffer = bytes()
+    with requests.post(url,
+        json=payload,
+        auth=(HTTPDigestAuth(THETA_ID, THETA_PASSWORD)),
+        stream=True) as r:
+        for chunk in r.iter_content(chunk_size=1024):
+            buffer += chunk
+            a = buffer.find(b'\xff\xd8')
+            b = buffer.find(b'\xff\xd9')
+            if a != -1 and b != -1:
+                jpg = buffer[a:b+2]
+                buffer = buffer[b+2:]
+                frame = cv2.imdecode(np.fromstring(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
 
-        # Frisby and more to sea?
-        #labelmap[labelmap == 33] = 154
-        #labelmap[labelmap == 66] = 154
-        #labelmap[labelmap == 80] = 154
-        #Bottle to flower?
-        labelmap[labelmap == 43] = 118
-        # Person to rock?
-        #labelmap[labelmap == 0] = 168
-        #dog to person
-        #labelmap[labelmap == 17] = 0
+                image, raw_image = preprocessing(frame, device, CONFIG)
+                labelmap = inference(model, image, raw_image, postprocessor)
+                colormap = colorize(labelmap)
 
-        # Sky grass and bottle flower
-        #bottle_mask = (labelmap == 43)
-        #labelmap[0:193,:] = 156
-        #labelmap[:,:] = 123
-        #labelmap[bottle_mask] = 118
+                uniques = np.unique(labelmap)
+                instance_counter = 0
+                instancemap = np.zeros(labelmap.shape)
+                print(uniques)
+                for label_id in uniques:
+                    mask = (labelmap == label_id)
+                    instancemap[mask] = instance_counter
+                    instance_counter += 1
 
-        #print(labelmap.shape)
+                labelimg = Image.fromarray(np.uint8(labelmap), 'L')
+                instanceimg = Image.fromarray(np.uint8(instancemap),'L')
+                #labelimg.show()
 
-        #colormap = colorize(labelmap)
-        uniques = np.unique(labelmap)
-        instance_counter = 0
-        instancemap = np.zeros(labelmap.shape)
-        print(uniques)
-        for label_id in uniques:
-            mask = (labelmap == label_id)
-            instancemap[mask] = instance_counter
-            instance_counter += 1
+                item = coco_dataset.get_item_from_images(labelimg, instanceimg)
+                generated = spade_model(item, mode='inference')
 
-        labelimg = Image.fromarray(np.uint8(labelmap), 'L')
-        instanceimg = Image.fromarray(np.uint8(instancemap),'L')
-        #labelimg.show()
+                generated_np = util.tensor2im(generated[0])
 
-        item = coco_dataset.get_item_from_images(labelimg, instanceimg)
-        generated = spade_model(item, mode='inference')
+                # Masking
+                #print("Generated image shape {} label resize shape {}".format(generated_np.shape, label_resized.shape))
+                #label_resized = np.array(labelimg.resize((256,256), Image.NEAREST))
+                #generated_np[label_resized != 50, :] = [0, 0, 0];
 
-        generated_np = util.tensor2im(generated[0])
+                generated_rgb = cv2.cvtColor(generated_np, cv2.COLOR_BGR2RGB)
 
-        # Masking
-        #print("Generated image shape {} label resize shape {}".format(generated_np.shape, label_resized.shape))
-        #label_resized = np.array(labelimg.resize((256,256), Image.NEAREST))
-        #generated_np[label_resized != 118, :] = [0, 0, 0];
 
-        generated_rgb = cv2.cvtColor(generated_np, cv2.COLOR_BGR2RGB)
+                # Register mouse callback function
+                cv2.setMouseCallback(window_name, mouse_event, labelmap)
 
-        #print("raw image shape {}".format(raw_image.shape))
-        #print("Generated image {}".format(generated_np))
-        #print("raw image  {}".format(raw_image))
+                # Overlay prediction
+                cv2.addWeighted(colormap, 0.5, raw_image, 0.5, 0.0, raw_image)
 
-        # Register mouse callback function
-        cv2.setMouseCallback(window_name, mouse_event, labelmap)
-
-        # Overlay prediction
-        #cv2.addWeighted(colormap, 1.0, raw_image, 0.0, 0.0, raw_image)
-
-        # Quit by pressing "q" key
-        cv2.imshow(window_name, generated_rgb)
-        cv2.resizeWindow(window_name, 1024,1024)
-        if cv2.waitKey(10) == ord("q"):
-            break
+                # Quit by pressing "q" key
+                cv2.imshow(window_name, generated_rgb)
+                cv2.resizeWindow(window_name, 1024,1024)
+                if cv2.waitKey(10) == ord("q"):
+                    break
 
 
 if __name__ == "__main__":
